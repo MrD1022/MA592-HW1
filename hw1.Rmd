@@ -1,0 +1,206 @@
+---
+title: "MA592 HW1"
+author: "Mingrui Du"
+date: "2024-02-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+pacman::p_load(dplyr
+      , ggplot2
+      , ggExtra
+      , tidyverse
+      , MatchIt # PSM
+      , tableone # overview data
+      , boot # Bootstrap
+      )
+```
+
+
+## 1
+
+(a)
+```{r, echo=FALSE, warning=FALSE}
+# Read data
+samp_1k <- read.csv("Sample_Size_1000.csv", header = T)
+samp_2k <- read.csv("Sample_Size_2000.csv", header = T)
+samp_5k <- read.csv("Sample_Size_5000.csv", header = T)
+samp_10k <- read.csv("Sample_Size_10000.csv", header = T)
+samp_20k <- read.csv("Sample_Size_20000.csv", header = T)
+
+q1a <- function(samp){ # a function to process all sizes
+  # Split
+  set.seed(3)
+  n <- nrow(samp)
+  a <- sample(n, n/2)
+  fold_a <- samp[a, ]
+  fold_b <- samp[-a, ]
+  # OR
+  # model.or_a_ctrl <- lm(y ~ a + x, subset(fold_a, a == 0)) # Control Group
+  # model.or_a_trt <- lm(y ~ a + x, subset(fold_a, a == 1)) # Treatment Group
+  ate.or <- numeric(1000) # bootstrap 1000 times
+  model.or_a <- lm(y ~ a + x, fold_a)
+  for(i in 1:1000){
+    fold_b.boot <- fold_b[sample(n/2, replace = TRUE), ] # resampling: bootstrap
+    pred_trt <- predict(model.or_a, subset(fold_b.boot, a == 1))
+    pred_ctrl <- predict(model.or_a, subset(fold_b.boot, a == 0))
+    ate.or[i] <- mean(pred_trt) - mean(pred_ctrl)
+  }
+  return(ate.or)
+}
+
+# OR
+ate_all <- data.frame(matrix(ncol = 5, nrow = 1000))
+colnames(ate_all) <- c("1k", "2k", "5k", "10k", "20k")
+ate_all$`1k` <- q1a(samp_1k)
+ate_all$`2k` <- q1a(samp_2k)
+ate_all$`5k` <- q1a(samp_5k)
+ate_all$`10k` <- q1a(samp_10k)
+ate_all$`20k` <- q1a(samp_20k)
+#CreateTableOne(data = ate_all, smd = T)
+q <- unlist(apply(ate_all, 2, 
+            function(x) quantile(x, probs = c(0.025, 0.975), na.rm = TRUE)))
+tab <- data.frame(mean = apply(ate_all, 2, mean), 
+                  quantile_0.025 = q[1,], quantile_0.975 = q[2,])
+tab
+boxplot(ate_all, main = "Q1.a Boxplot for ATE (OR)")
+
+# Propensity score matching (PSM)
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8246231/
+# tab <- CreateTableOne(vars = c("x", "a", "y"), data = fold_a, 
+#                       factorVars = c('a'), strata = 'a', smd = T)
+# SMD: standardized mean difference
+#print(tab, smd = T, showAllLevels = T, noSpaces = T, printToggle = FALSE)
+# tab
+
+# estimate propensity score (PS)
+
+## model <- matchit(formula = a ~ x, data = fold_b, distance = "logit")
+## summary(model)
+## est.ps <- model$distance
+# Propensity Score (PS)
+  # model.ps <- glm(a ~ x, family = binomial(link = "logit"), fold_a)
+  # fold_a$ps <- predict(model.ps, type = "response")
+  # ggplot(fold_a) + 
+  #   aes(x = a, y = ps) +
+  #   geom_point() +
+  #   expand_limits(x = c(0, 1), y = c(0, 1))
+
+```
+
+(b)
+```{r, warning = FALSE}
+q1b <- function(samp){ # a function to process all sizes
+  # Split
+  set.seed(3)
+  n <- nrow(samp)
+  a <- sample(n, n/2)
+  fold_a <- samp[a, ]
+  fold_b <- samp[-a, ]
+  # OR
+  ate.or <- numeric(1000)
+  model.or_b <- lm(y ~ a * x, fold_a)
+  for(i in 1:1000){
+    fold_b.boot <- fold_b[sample(n/2, replace = TRUE), ] # resampling: bootstrap
+    pred_trt <- predict(model.or_b, subset(fold_b.boot, a == 1))
+    pred_ctrl <- predict(model.or_b, subset(fold_b.boot, a == 0))
+    ate.or[i] <- mean(pred_trt) - mean(pred_ctrl)
+  }
+  return(ate.or)
+}
+
+# OR
+ate_all <- data.frame(matrix(ncol = 5, nrow = 1000))
+colnames(ate_all) <- c("1k", "2k", "5k", "10k", "20k")
+ate_all$`1k` <- q1b(samp_1k)
+ate_all$`2k` <- q1b(samp_2k)
+ate_all$`5k` <- q1b(samp_5k)
+ate_all$`10k` <- q1b(samp_10k)
+ate_all$`20k` <- q1b(samp_20k)
+#CreateTableOne(data = ate_all, smd = T)
+q <- unlist(apply(ate_all, 2, 
+            function(x) quantile(x, probs = c(0.025, 0.975), na.rm = TRUE)))
+tab <- data.frame(mean = apply(ate_all, 2, mean), 
+                  quantile_0.025 = q[1,], quantile_0.975 = q[2,])
+tab
+boxplot(ate_all, main = "Q1.b Boxplot for ATE (OR)")
+```
+
+(c)
+```{r}
+q1c <- function(samp){ # a function to process all sizes
+  # Split
+  set.seed(3)
+  n <- nrow(samp)
+  a <- sample(n, n/2)
+  fold_a <- samp[a, ]
+  fold_b <- samp[-a, ]
+  # OR
+  model.or_c_ctrl <- lm(y ~ x + I(x)^2 + I(x)^3, subset(fold_a, a == 0)) # Control Group
+  model.or_c_trt <- lm(y ~ x + I(x)^2 + I(x)^3, subset(fold_a, a == 1)) # Treatment Group
+  ate.or <- numeric(1000) # bootstrap 1000 times
+  for(i in 1:1000){
+    fold_b.boot <- fold_b[sample(n/2, replace = TRUE), ] # resampling: bootstrap
+    pred_trt <- predict(model.or_c_trt, subset(fold_b.boot, a == 1))
+    pred_ctrl <- predict(model.or_c_ctrl, subset(fold_b.boot, a == 0))
+    ate.or[i] <- mean(pred_trt) - mean(pred_ctrl)
+  }
+  return(ate.or)
+}
+
+# OR
+ate_all <- data.frame(matrix(ncol = 5, nrow = 1000))
+colnames(ate_all) <- c("1k", "2k", "5k", "10k", "20k")
+ate_all$`1k` <- q1c(samp_1k)
+ate_all$`2k` <- q1c(samp_2k)
+ate_all$`5k` <- q1c(samp_5k)
+ate_all$`10k` <- q1c(samp_10k)
+ate_all$`20k` <- q1c(samp_20k)
+#CreateTableOne(data = ate_all, smd = T)
+q <- unlist(apply(ate_all, 2, 
+            function(x) quantile(x, probs = c(0.025, 0.975), na.rm = TRUE)))
+tab <- data.frame(mean = apply(ate_all, 2, mean), 
+                  quantile_0.025 = q[1,], quantile_0.975 = q[2,])
+tab
+boxplot(ate_all, main = "Q1.c Boxplot for ATE (ORs)")
+```
+(d)
+```{r}
+q1d <- function(samp){ # a function to process all sizes
+  # Split
+  set.seed(3)
+  n <- nrow(samp)
+  a <- sample(n, n/2)
+  fold_a <- samp[a, ]
+  fold_b <- samp[-a, ]
+  # OR
+  model.or_d_ctrl <- lm(y ~ poly(x, 6), subset(fold_a, a == 0)) # Control Group
+  model.or_d_trt <- lm(y ~ poly(x, 6), subset(fold_a, a == 1)) # Treatment Group
+  ate.or <- numeric(1000) # bootstrap 1000 times
+  for(i in 1:1000){
+    fold_b.boot <- fold_b[sample(n/2, replace = TRUE), ] # resampling: bootstrap
+    pred_trt <- predict(model.or_d_trt, subset(fold_b.boot, a == 1))
+    pred_ctrl <- predict(model.or_d_ctrl, subset(fold_b.boot, a == 0))
+    ate.or[i] <- mean(pred_trt) - mean(pred_ctrl)
+  }
+  return(ate.or)
+}
+
+# OR
+ate_all <- data.frame(matrix(ncol = 5, nrow = 1000))
+colnames(ate_all) <- c("1k", "2k", "5k", "10k", "20k")
+ate_all$`1k` <- q1d(samp_1k)
+ate_all$`2k` <- q1d(samp_2k)
+ate_all$`5k` <- q1d(samp_5k)
+ate_all$`10k` <- q1d(samp_10k)
+ate_all$`20k` <- q1d(samp_20k)
+#CreateTableOne(data = ate_all, smd = T)
+q <- unlist(apply(ate_all, 2, 
+            function(x) quantile(x, probs = c(0.025, 0.975), na.rm = TRUE)))
+tab <- data.frame(mean = apply(ate_all, 2, mean), 
+                  quantile_0.025 = q[1,], quantile_0.975 = q[2,])
+tab
+boxplot(ate_all, main = "Q1.c Boxplot for ATE (ORs)")
+```
+
